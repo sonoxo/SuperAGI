@@ -107,7 +107,7 @@ def get_tool_logs(tool_name: str, organisation=Depends(get_user_organisation)):
 @router.get("/knowledge/{knowledge_name}/logs", status_code=200)
 def get_knowledge_logs(knowledge_name: str, organisation=Depends(get_user_organisation)):
     try:
-        return KnowledgeHandler(session=db.session, organisation_id=organisation.id).get_knowledge_usage_by_name(knowledge_name)
+        return KnowledgeHandler(session=db.session, organisation_id=organisation.id).get_knowledge_events_by_name(knowledge_name)
     except Exception as e:
         logging.error(f"Error while getting knowledge event details: {str(e)}")
         if hasattr(e, 'status_code'):
