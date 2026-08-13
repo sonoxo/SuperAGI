@@ -6,14 +6,14 @@ from superagi.apm.tools_handler import ToolsHandler
 from superagi.apm.knowledge_handler import KnowledgeHandler
 from fastapi_jwt_auth import AuthJWT
 from fastapi_sqlalchemy import db
-from superagi.monitoring.soundcloud_engagement import runtime_from_env
+from superagi.monitoring.soundcloud_runtime import runtime_from_env
 import logging
 
 router = APIRouter()
 
-# XuniHub's SoundCloud monitor is intentionally read-only. It starts only when
-# SOUNDCLOUD_ACCESS_TOKEN is configured; otherwise its API reports UNCONFIGURED
-# instead of inventing engagement values.
+# XuniHub's SoundCloud monitor is intentionally read-only. It can use either a
+# static access token or client credentials with automatic in-process refresh.
+# Missing credentials report UNCONFIGURED instead of inventing engagement data.
 _soundcloud_runtime = runtime_from_env()
 _soundcloud_runtime.start()
 
@@ -128,7 +128,10 @@ def get_soundcloud_latest(organisation=Depends(get_user_organisation)):
         return {
             "status": "UNCONFIGURED",
             "snapshot": None,
-            "message": "Set SOUNDCLOUD_ACCESS_TOKEN to enable official API monitoring.",
+            "message": (
+                "Set SOUNDCLOUD_ACCESS_TOKEN or SOUNDCLOUD_CLIENT_ID plus "
+                "SOUNDCLOUD_CLIENT_SECRET to enable official API monitoring."
+            ),
         }
     return {
         "status": _soundcloud_runtime.health()["status"],
@@ -164,7 +167,10 @@ def poll_soundcloud_now(organisation=Depends(get_user_organisation)):
     if _soundcloud_runtime.monitor is None:
         raise HTTPException(
             status_code=503,
-            detail="SoundCloud monitor is unconfigured; set SOUNDCLOUD_ACCESS_TOKEN.",
+            detail=(
+                "SoundCloud monitor is unconfigured; set SOUNDCLOUD_ACCESS_TOKEN "
+                "or SOUNDCLOUD_CLIENT_ID plus SOUNDCLOUD_CLIENT_SECRET."
+            ),
         )
     try:
         snapshot = _soundcloud_runtime.poll_once()
