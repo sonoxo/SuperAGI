@@ -4,6 +4,7 @@ from superagi.monitoring.soundcloud_engagement import (
     MonitorConfig,
     SnapshotStore,
     SoundCloudMonitor,
+    runtime_from_env,
 )
 
 
@@ -101,3 +102,11 @@ def test_missing_values_are_not_fabricated(tmp_path: Path):
     assert snapshot.stats_hidden_tracks == 1
     assert snapshot.tracks[0].playback_count is None
     assert snapshot.tracks[0].favoritings_count is None
+
+
+def test_runtime_is_truthfully_unconfigured_without_access_token(monkeypatch):
+    monkeypatch.delenv("SOUNDCLOUD_ACCESS_TOKEN", raising=False)
+    runtime = runtime_from_env()
+    assert runtime.health()["status"] == "UNCONFIGURED"
+    assert runtime.health()["thread_alive"] is False
+    assert runtime.store is None
