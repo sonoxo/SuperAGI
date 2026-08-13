@@ -10,8 +10,10 @@ from typing import Any, Literal
 
 import google.auth
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from google.auth.transport import requests as google_requests
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import firestore, pubsub_v1, storage
+from google.oauth2 import id_token
 from pydantic import BaseModel, Field
 
 APP_NAME = "Xuni Media API"
@@ -24,6 +26,8 @@ VIDEO_MODEL = os.getenv("XUNI_VIDEO_MODEL", "veo-3.1-fast-generate-001")
 API_KEYS = {key.strip() for key in os.getenv("XUNI_API_KEYS", "").split(",") if key.strip()}
 DEFAULT_DAILY_JOBS = int(os.getenv("XUNI_DEFAULT_DAILY_JOBS", "100"))
 PUBLIC_BASE_URL = os.getenv("XUNI_PUBLIC_BASE_URL", "")
+WORKER_AUDIENCE = os.getenv("XUNI_WORKER_AUDIENCE", "")
+WORKER_SERVICE_ACCOUNT = os.getenv("XUNI_WORKER_SERVICE_ACCOUNT", "")
 
 app = FastAPI(title=APP_NAME, version="1.0.0")
 
@@ -107,9 +111,12 @@ async def require_api_key(x_api_key: str | None = Header(default=None)) -> str:
         if os.getenv("XUNI_ALLOW_UNAUTHENTICATED", "false").lower() == "true":
             return "dev"
         raise HTTPException(status_code=503, detail="API authentication is not configured")
-    if not x_api_key or not secrets.compare_digest(x_api_key, next((k for k in API_KEYS if secrets.compare_digest(k, x_api_key)), "")):
+    if not x_api_key:
         raise HTTPException(status_code=401, detail="Invalid API key")
-    return x_api_key
+    matched = next((key for key in API_KEYS if secrets.compare_digest(key, x_api_key)), None)
+    if matched is None:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return matched
 
 
 def quota_for_key(api_key: str) -> int:
@@ -160,6 +167,33 @@ def public_status_url(job_id: str, request: Request | None = None) -> str:
     if request is not None:
         return str(request.base_url).rstrip("/") + f"/v1/generations/{job_id}"
     return f"/v1/generations/{job_id}"
+
+
+def verify_worker_identity(request: Request) -> None:
+    if not WORKER_AUDIENCE:
+        raise HTTPException(status_code=503, detail="Worker OIDC audience is not configured")
+    authorization = request.headers.get("authorization", "")
+    if not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing worker identity token")
+    token = authorization.split(" ", 1)[1]
+    try:
+        claims = id_token.verify_oauth2_token(token, google_requests.Request(), audience=WORKER_AUDIENCE)
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Invalid worker identity token") from exc
+    if WORKER_SERVICE_ACCOUNT and claims.get("email") != WORKER_SERVICE_ACCOUNT:
+        raise HTTPException(status_code=403, detail="Unexpected worker service account")
+    if claims.get("email_verified") is False:
+        raise HTTPException(status_code=403, detail="Worker identity email is not verified")
+
+
+@app.get("/")
+async def root() -> dict[str, str]:
+    return {
+        "name": APP_NAME,
+        "version": "1.0.0",
+        "docs": "/docs",
+        "create_generation": "/v1/generations",
+    }
 
 
 @app.get("/healthz")
@@ -228,18 +262,12 @@ async def get_generation(job_id: str, _: str = Depends(require_api_key)) -> Gene
     snap = await asyncio.to_thread(db().collection("xuni_generations").document(job_id).get)
     if not snap.exists:
         raise HTTPException(status_code=404, detail="Generation not found")
-    data = snap.to_dict()
-    return GenerationStatus(**data)
+    return GenerationStatus(**snap.to_dict())
 
 
 @app.post("/internal/pubsub")
 async def pubsub_push(request: Request) -> dict[str, bool]:
-    expected = os.getenv("XUNI_WORKER_TOKEN", "")
-    if expected:
-        supplied = request.headers.get("x-xuni-worker-token", "")
-        if not secrets.compare_digest(supplied, expected):
-            raise HTTPException(status_code=401, detail="Invalid worker token")
-
+    verify_worker_identity(request)
     envelope = await request.json()
     message = envelope.get("message", {})
     encoded = message.get("data")
@@ -256,7 +284,7 @@ async def process_job(job_id: str) -> None:
     if not snap.exists:
         return
     job = snap.to_dict()
-    if job.get("status") in {"running", "succeeded"}:
+    if job.get("status") != "queued":
         return
     await asyncio.to_thread(ref.update, {"status": "running", "updated_at": utcnow(), "error": None})
     try:
