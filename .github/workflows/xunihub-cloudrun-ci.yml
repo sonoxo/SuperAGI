@@ -1,0 +1,19 @@
+name: XuniHub Cloud Run Deploy CI
+
+on:
+  push:
+    branches: [xunihub-launch]
+    paths:
+      - "deploy/cloudrun/**"
+      - ".github/workflows/xunihub-cloudrun-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate production entrypoint
+        run: bash -n deploy/cloudrun/entrypoint.sh && bash -n deploy/cloudrun/deploy.sh
+      - name: Build production container
+        run: docker build -f deploy/cloudrun/Dockerfile -t xunihub-cloudrun:test .
