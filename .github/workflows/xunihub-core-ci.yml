@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 jobs:
-  durable-task-runtime:
+  xunihub-core:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -26,6 +26,6 @@ jobs:
       - name: Install focused test dependency
         run: python -m pip install pytest
       - name: Compile XuniHub core
-        run: python -m py_compile superagi/xunihub/__init__.py superagi/xunihub/task_runtime.py
-      - name: Run durable task runtime tests
-        run: python -m pytest -q tests/xunihub/test_task_runtime.py
+        run: python -m py_compile superagi/xunihub/*.py
+      - name: Run XuniHub core tests
+        run: python -m pytest -q tests/xunihub
