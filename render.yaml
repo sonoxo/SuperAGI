@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: right-track
+    runtime: docker
+    repo: https://github.com/sonoxo/SuperAGI
+    branch: right-track-launch
+    dockerfilePath: ./apps/right-track/Dockerfile
+    dockerContext: ./apps/right-track
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: RIGHT_TRACK_ENV
+        value: production
+      - key: RIGHT_TRACK_SECRET
+        generateValue: true
+      - key: RIGHT_TRACK_DATA_DIR
+        value: /data
+    disk:
+      name: right-track-data
+      mountPath: /data
+      sizeGB: 1
