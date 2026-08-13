@@ -332,11 +332,18 @@ class SignalAllocator:
             return {}
         names = list(campaigns)
         minimum_each = max(0, minimum_each)
-        floor_total = min(total_workers, minimum_each * len(names))
-        allocation = {name: 0 for name in names}
-        for name in names[:floor_total]:
-            allocation[name] += 1
-        remaining = total_workers - sum(allocation.values())
+
+        # Apply the requested floor fairly before signal-weighted optimization.
+        # If capacity is too small to satisfy every floor, distribute one worker
+        # at a time across campaigns rather than silently under-allocating floors.
+        base_floor = min(minimum_each, total_workers // len(names))
+        allocation = {name: base_floor for name in names}
+        remaining = total_workers - (base_floor * len(names))
+        if base_floor < minimum_each:
+            for name in names[:remaining]:
+                allocation[name] += 1
+            return allocation
+
         if remaining <= 0:
             return allocation
 
