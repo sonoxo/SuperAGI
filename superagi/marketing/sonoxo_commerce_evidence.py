@@ -15,6 +15,19 @@ from superagi.marketing.sonoxo_sales_fabric import AttributedEvent, RevenueLedge
 from superagi.marketing.sonoxo_sales_sprint import CAMPAIGN_ID
 
 DISTROKID_DIRECT_SOURCE = "distrokid_direct"
+REJECTED_ORDER_STATUSES = frozenset(
+    {
+        "cancelled",
+        "canceled",
+        "chargeback",
+        "failed",
+        "refunded",
+        "reversed",
+        "test",
+        "void",
+        "voided",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -38,6 +51,7 @@ class CommerceIngestReceipt:
     campaign_id: str
     amount_usd: float
     accepted: bool
+    first_real_dollar_reached: bool
 
 
 class AuthorizedCommerceEvidenceBridge:
@@ -55,6 +69,12 @@ class AuthorizedCommerceEvidenceBridge:
             raise ValueError("verified order amount must be positive")
         if not evidence.third_party_attested or evidence.self_purchase:
             raise ValueError("order must be attested as a genuine third-party purchase")
+        if evidence.order_status:
+            normalized_status = evidence.order_status.strip().lower()
+            if normalized_status in REJECTED_ORDER_STATUSES:
+                raise ValueError(
+                    "order status is not eligible for verified revenue: " + normalized_status
+                )
 
     def ingest_distrokid_direct(
         self,
@@ -83,4 +103,5 @@ class AuthorizedCommerceEvidenceBridge:
             campaign_id=evidence.campaign_id,
             amount_usd=evidence.amount_usd,
             accepted=after > before,
+            first_real_dollar_reached=ledger.first_real_dollar_reached(),
         )
