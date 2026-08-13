@@ -26,6 +26,10 @@ jobs:
       - name: Install focused dependencies
         run: python -m pip install pytest requests
       - name: Compile monitor
-        run: python -m py_compile superagi/monitoring/soundcloud_engagement.py superagi/monitoring/soundcloud_app.py
+        run: >-
+          python -m py_compile
+          superagi/monitoring/soundcloud_engagement.py
+          superagi/monitoring/soundcloud_runtime.py
+          superagi/monitoring/soundcloud_app.py
       - name: Run monitor tests
-        run: python -m pytest -q tests/monitoring/test_soundcloud_engagement.py
+        run: python -m pytest -q tests/monitoring
