@@ -14,11 +14,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install dependencies
-        run: pip install -r apps/right-track/requirements.txt
+      - name: Install dependencies and security scanners
+        run: pip install -r apps/right-track/requirements.txt httpx bandit pip-audit
       - name: Compile backend
         run: python -m py_compile apps/right-track/backend.py
-      - name: Import app and smoke test health
+      - name: Static security scan
+        run: bandit -q -r apps/right-track/backend.py
+      - name: Dependency audit
+        run: pip-audit -r apps/right-track/requirements.txt
+      - name: API security smoke tests
         env:
           RIGHT_TRACK_ENV: development
           RIGHT_TRACK_DATA_DIR: /tmp/right-track-ci
@@ -26,12 +30,30 @@ jobs:
           python - <<'PY'
           import importlib.util
           from pathlib import Path
+          from fastapi.testclient import TestClient
           p=Path('apps/right-track/backend.py')
           spec=importlib.util.spec_from_file_location('right_track_backend',p)
           m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
-          assert m.health()['ok'] is True
-          assert 'copyright' in m.PROVIDERS
-          print('Right Track backend smoke test passed')
+          c=TestClient(m.app)
+          r=c.get('/api/health'); assert r.status_code==200 and r.json()['ok'] is True
+          assert c.get('/api/projects').status_code==401
+          assert 'from __future__' not in c.get('/backend.py').text
+          assert 'SQLite format 3' not in c.get('/data/right_track.db').text
+          assert c.get('/../../etc/passwd').status_code in (200,404)
+          h=c.get('/').headers
+          assert h.get('x-content-type-options')=='nosniff'
+          assert h.get('x-frame-options')=='DENY'
+          assert 'frame-ancestors' in h.get('content-security-policy','')
+          print('Right Track API and security smoke tests passed')
           PY
       - name: Build production container
-        run: docker build -f apps/right-track/Dockerfile -t right-track:ci .
+        run: docker build -f apps/right-track/Dockerfile -t right-track:ci apps/right-track
+      - name: Run container and probe live surface
+        run: |
+          docker run -d --rm --name right-track-ci -p 18080:8080 -e RIGHT_TRACK_SECRET='ci-only-secret-123456789012345678901234567890' right-track:ci
+          for i in {1..20}; do curl -fsS http://127.0.0.1:18080/api/health && break || sleep 1; done
+          curl -fsS http://127.0.0.1:18080/api/health | grep '"ok":true'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/api/projects)" = "401"
+          ! curl -fsS http://127.0.0.1:18080/backend.py | grep -q 'from __future__'
+          ! curl -fsS http://127.0.0.1:18080/data/right_track.db | grep -q 'SQLite format 3'
+          docker stop right-track-ci
