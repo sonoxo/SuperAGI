@@ -1,0 +1,37 @@
+name: Right Track Backend CI
+on:
+  push:
+    branches: [right-track-launch]
+    paths:
+      - "apps/right-track/**"
+      - ".github/workflows/right-track-backend-ci.yml"
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r apps/right-track/requirements.txt
+      - name: Compile backend
+        run: python -m py_compile apps/right-track/backend.py
+      - name: Import app and smoke test health
+        env:
+          RIGHT_TRACK_ENV: development
+          RIGHT_TRACK_DATA_DIR: /tmp/right-track-ci
+        run: |
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          p=Path('apps/right-track/backend.py')
+          spec=importlib.util.spec_from_file_location('right_track_backend',p)
+          m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+          assert m.health()['ok'] is True
+          assert 'copyright' in m.PROVIDERS
+          print('Right Track backend smoke test passed')
+          PY
+      - name: Build production container
+        run: docker build -f apps/right-track/Dockerfile -t right-track:ci .
