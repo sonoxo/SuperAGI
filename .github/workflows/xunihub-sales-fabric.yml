@@ -6,6 +6,7 @@ on:
     paths:
       - "superagi/marketing/sonoxo_sales_fabric.py"
       - "superagi/marketing/sonoxo_sales_sprint.py"
+      - "superagi/marketing/sonoxo_commerce_evidence.py"
       - "tests/marketing/test_sonoxo_sales_fabric.py"
       - "tests/marketing/test_sonoxo_sales_sprint.py"
       - ".github/workflows/xunihub-sales-fabric.yml"
@@ -31,5 +32,6 @@ jobs:
         run: |
           python -m py_compile superagi/marketing/sonoxo_sales_fabric.py
           python -m py_compile superagi/marketing/sonoxo_sales_sprint.py
+          python -m py_compile superagi/marketing/sonoxo_commerce_evidence.py
       - name: Run fabric tests
         run: python -m pytest -q tests/marketing/test_sonoxo_sales_fabric.py tests/marketing/test_sonoxo_sales_sprint.py
