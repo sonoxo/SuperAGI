@@ -15,10 +15,10 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 
-from superagi.monitoring.soundcloud_engagement import runtime_from_env
+from superagi.monitoring.soundcloud_runtime import runtime_from_env
 
 
-app = FastAPI(title="XuniHub SoundCloud Engagement Monitor", version="1.0.0")
+app = FastAPI(title="XuniHub SoundCloud Engagement Monitor", version="1.1.0")
 runtime = runtime_from_env()
 
 
@@ -48,7 +48,10 @@ def latest(_: None = Depends(_authorize)):
     if runtime.store is None:
         return {
             "status": "UNCONFIGURED",
-            "message": "Set SOUNDCLOUD_ACCESS_TOKEN to enable official API monitoring.",
+            "message": (
+                "Set SOUNDCLOUD_ACCESS_TOKEN or SOUNDCLOUD_CLIENT_ID plus "
+                "SOUNDCLOUD_CLIENT_SECRET to enable official API monitoring."
+            ),
             "snapshot": None,
         }
     return {"status": runtime.health()["status"], "snapshot": runtime.store.latest()}
@@ -79,7 +82,10 @@ def poll_now(_: None = Depends(_authorize)):
     if runtime.monitor is None:
         raise HTTPException(
             status_code=503,
-            detail="SoundCloud monitor is unconfigured; set SOUNDCLOUD_ACCESS_TOKEN.",
+            detail=(
+                "SoundCloud monitor is unconfigured; set SOUNDCLOUD_ACCESS_TOKEN "
+                "or SOUNDCLOUD_CLIENT_ID plus SOUNDCLOUD_CLIENT_SECRET."
+            ),
         )
     try:
         snapshot = runtime.poll_once()
