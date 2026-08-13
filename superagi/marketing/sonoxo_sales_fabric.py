@@ -18,6 +18,7 @@ from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 WORKER_CAPACITY = 1_000_000
 SOUNDCLOUD_DESTINATION = "https://soundcloud.com/almightysonoxo/tracks"
 MERCH_DESTINATION = "https://direct.distrokid.com/almightysonoxo2/home"
+AUTHORIZED_COMMERCE_SOURCES = frozenset({"distrokid_direct"})
 
 
 class ActionType(str, Enum):
@@ -99,6 +100,9 @@ class AttributedEvent:
     amount_usd: float = 0.0
     verified: bool = False
     authorization_source: Optional[str] = None
+    evidence_id: Optional[str] = None
+    third_party: bool = True
+    self_purchase: bool = False
 
 
 @dataclass
@@ -174,7 +178,6 @@ class LogicalWorkerDirectory:
         count = max(0, min(count, self.capacity))
         seed = int(hashlib.sha256(campaign_id.encode("utf-8")).hexdigest(), 16)
         start = seed % self.capacity
-        # A large odd stride gives deterministic spread without materializing the directory.
         stride = 7919
         workers: List[WorkerAddress] = []
         seen = set()
@@ -235,17 +238,28 @@ class AttributionRouter:
 
 
 class RevenueLedger:
-    """Accepts revenue only when the event is verified by an authorized commerce source."""
+    """Accepts revenue only from deduplicated, authorized third-party commerce evidence."""
 
     def __init__(self):
         self._events: List[AttributedEvent] = []
+        self._revenue_evidence_ids = set()
 
     def ingest(self, event: AttributedEvent) -> None:
         if event.event_type == "revenue":
-            if not event.verified or not event.authorization_source:
-                raise ValueError("revenue must be verified by an authorized commerce source")
+            if not event.verified:
+                raise ValueError("revenue must be verified")
+            if event.authorization_source not in AUTHORIZED_COMMERCE_SOURCES:
+                raise ValueError("revenue must come from an authorized commerce source")
+            if not event.third_party or event.self_purchase:
+                raise ValueError("revenue must be a genuine third-party purchase")
             if event.amount_usd <= 0:
                 raise ValueError("verified revenue amount must be positive")
+            if not event.evidence_id:
+                raise ValueError("verified revenue requires a stable order/evidence id")
+            evidence_key = (event.authorization_source, event.evidence_id)
+            if evidence_key in self._revenue_evidence_ids:
+                return
+            self._revenue_evidence_ids.add(evidence_key)
         self._events.append(event)
 
     def signals(self, campaign_id: str) -> CampaignSignals:
@@ -271,9 +285,14 @@ class RevenueLedger:
 
     def first_real_dollar_reached(self) -> bool:
         return sum(
-            e.amount_usd
-            for e in self._events
-            if e.event_type == "revenue" and e.verified and e.authorization_source
+            event.amount_usd
+            for event in self._events
+            if event.event_type == "revenue"
+            and event.verified
+            and event.authorization_source in AUTHORIZED_COMMERCE_SOURCES
+            and event.third_party
+            and not event.self_purchase
+            and event.evidence_id
         ) >= 1.0
 
 
@@ -310,9 +329,7 @@ class SignalAllocator:
             return allocation
 
         weights = {name: max(0.01, self.score(campaigns[name]) + 1.0) for name in names}
-        total_weight = sum(weights.values())
         for _ in range(remaining):
-            # Greedy proportional fill keeps behavior deterministic and bounded.
             target = max(
                 names,
                 key=lambda name: weights[name] / (allocation[name] + 1),
