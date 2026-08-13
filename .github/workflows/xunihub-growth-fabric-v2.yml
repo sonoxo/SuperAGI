@@ -1,0 +1,32 @@
+name: XuniHub Verified Growth Fabric v2
+
+on:
+  push:
+    branches: [xunihub-launch]
+    paths:
+      - 'xunihub_growth_fabric_v2.py'
+      - 'tests/test_xunihub_growth_fabric_v2.py'
+      - '.github/workflows/xunihub-growth-fabric-v2.yml'
+  pull_request:
+    paths:
+      - 'xunihub_growth_fabric_v2.py'
+      - 'tests/test_xunihub_growth_fabric_v2.py'
+      - '.github/workflows/xunihub-growth-fabric-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile
+        run: python -m py_compile xunihub_growth_fabric_v2.py tests/test_xunihub_growth_fabric_v2.py
+      - name: Run focused tests
+        run: python -m unittest tests.test_xunihub_growth_fabric_v2 -v
