@@ -9,10 +9,12 @@ on:
       - "superagi/marketing/sonoxo_commerce_evidence.py"
       - "superagi/marketing/sonoxo_signal_ingest.py"
       - "superagi/marketing/sonoxo_growth_metrics.py"
+      - "superagi/marketing/sonoxo_activation_plan.py"
       - "tests/marketing/test_sonoxo_sales_fabric.py"
       - "tests/marketing/test_sonoxo_sales_sprint.py"
       - "tests/marketing/test_sonoxo_signal_ingest.py"
       - "tests/marketing/test_sonoxo_growth_metrics.py"
+      - "tests/marketing/test_sonoxo_activation_plan.py"
       - ".github/workflows/xunihub-sales-fabric.yml"
   workflow_dispatch:
 
@@ -39,6 +41,7 @@ jobs:
           python -m py_compile superagi/marketing/sonoxo_commerce_evidence.py
           python -m py_compile superagi/marketing/sonoxo_signal_ingest.py
           python -m py_compile superagi/marketing/sonoxo_growth_metrics.py
+          python -m py_compile superagi/marketing/sonoxo_activation_plan.py
       - name: Run fabric tests
         run: >-
           python -m pytest -q
@@ -46,3 +49,4 @@ jobs:
           tests/marketing/test_sonoxo_sales_sprint.py
           tests/marketing/test_sonoxo_signal_ingest.py
           tests/marketing/test_sonoxo_growth_metrics.py
+          tests/marketing/test_sonoxo_activation_plan.py
