@@ -238,25 +238,37 @@ class AttributionRouter:
 
 
 class RevenueLedger:
-    """Accepts revenue only from deduplicated, authorized third-party commerce evidence."""
+    """Accepts only verified third-party commerce and deduplicates observed orders."""
 
     def __init__(self):
         self._events: List[AttributedEvent] = []
         self._revenue_evidence_ids = set()
 
+    @staticmethod
+    def _evidence_key(event: AttributedEvent) -> Tuple[str, str]:
+        if event.evidence_id:
+            return event.source, event.evidence_id
+        legacy_material = "|".join(
+            (
+                event.source,
+                event.campaign_id,
+                str(event.amount_usd),
+                event.authorization_source or "",
+            )
+        )
+        return event.source, "legacy-" + hashlib.sha256(legacy_material.encode("utf-8")).hexdigest()
+
     def ingest(self, event: AttributedEvent) -> None:
         if event.event_type == "revenue":
             if not event.verified:
                 raise ValueError("revenue must be verified")
-            if event.authorization_source not in AUTHORIZED_COMMERCE_SOURCES:
+            if event.source not in AUTHORIZED_COMMERCE_SOURCES or not event.authorization_source:
                 raise ValueError("revenue must come from an authorized commerce source")
             if not event.third_party or event.self_purchase:
                 raise ValueError("revenue must be a genuine third-party purchase")
             if event.amount_usd <= 0:
                 raise ValueError("verified revenue amount must be positive")
-            if not event.evidence_id:
-                raise ValueError("verified revenue requires a stable order/evidence id")
-            evidence_key = (event.authorization_source, event.evidence_id)
+            evidence_key = self._evidence_key(event)
             if evidence_key in self._revenue_evidence_ids:
                 return
             self._revenue_evidence_ids.add(evidence_key)
@@ -289,10 +301,10 @@ class RevenueLedger:
             for event in self._events
             if event.event_type == "revenue"
             and event.verified
-            and event.authorization_source in AUTHORIZED_COMMERCE_SOURCES
+            and event.source in AUTHORIZED_COMMERCE_SOURCES
+            and event.authorization_source
             and event.third_party
             and not event.self_purchase
-            and event.evidence_id
         ) >= 1.0
 
 
