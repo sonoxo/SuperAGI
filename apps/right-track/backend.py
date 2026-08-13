@@ -14,10 +14,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent
@@ -33,14 +32,31 @@ if ENV == "production" and len(SECRET) < 32:
 if not SECRET:
     SECRET = secrets.token_urlsafe(48)
 
-app = FastAPI(title="Right Track API", version="1.0.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[o.strip() for o in os.getenv("RIGHT_TRACK_ALLOWED_ORIGINS", "*").split(",")],
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
-)
+app = FastAPI(title="Right Track API", version="1.1.0", docs_url=None if ENV == "production" else "/docs", redoc_url=None)
+allowed_origins = [o.strip() for o in os.getenv("RIGHT_TRACK_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+if allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+        "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    )
+    if request.url.scheme == "https" or ENV == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 PROVIDERS = {
     "copyright": {"mode": "official_handoff", "url": "https://www.copyright.gov/registration/", "label": "U.S. Copyright Office"},
@@ -65,6 +81,7 @@ def init_db():
     with db() as c:
         c.executescript("""
         PRAGMA journal_mode=WAL;
+        PRAGMA foreign_keys=ON;
         CREATE TABLE IF NOT EXISTS users(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           email TEXT UNIQUE NOT NULL,
@@ -93,7 +110,9 @@ def init_db():
           status TEXT NOT NULL DEFAULT 'pending',
           note TEXT NOT NULL DEFAULT '',
           created_at INTEGER NOT NULL,
-          UNIQUE(project_id, provider, receipt_id)
+          UNIQUE(project_id, provider, receipt_id),
+          FOREIGN KEY(project_id) REFERENCES projects(id),
+          FOREIGN KEY(user_id) REFERENCES users(id)
         );
         CREATE TABLE IF NOT EXISTS royalty_imports(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,7 +121,9 @@ def init_db():
           source TEXT NOT NULL,
           row_count INTEGER NOT NULL,
           total_amount REAL NOT NULL,
-          created_at INTEGER NOT NULL
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY(project_id) REFERENCES projects(id),
+          FOREIGN KEY(user_id) REFERENCES users(id)
         );
         CREATE TABLE IF NOT EXISTS audit_log(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -110,7 +131,8 @@ def init_db():
           project_id INTEGER,
           action TEXT NOT NULL,
           payload TEXT NOT NULL,
-          created_at INTEGER NOT NULL
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY(user_id) REFERENCES users(id)
         );
         """)
 
@@ -119,20 +141,21 @@ init_db()
 
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 240_000)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310_000)
     return base64.urlsafe_b64encode(salt + digest).decode()
 
 
 def verify_password(password: str, stored: str) -> bool:
     raw = base64.urlsafe_b64decode(stored.encode())
     salt, expected = raw[:16], raw[16:]
-    actual = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 240_000)
+    actual = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310_000)
     return hmac.compare_digest(actual, expected)
 
 
 def issue_token(user_id: int) -> str:
-    exp = int(time.time()) + 60 * 60 * 24 * 7
-    body = f"{user_id}.{exp}"
+    exp = int(time.time()) + 60 * 60 * 8
+    nonce = secrets.token_hex(8)
+    body = f"{user_id}.{exp}.{nonce}"
     sig = hmac.new(SECRET.encode(), body.encode(), hashlib.sha256).hexdigest()
     return base64.urlsafe_b64encode(f"{body}.{sig}".encode()).decode()
 
@@ -140,8 +163,8 @@ def issue_token(user_id: int) -> str:
 def token_user(token: str) -> int:
     try:
         decoded = base64.urlsafe_b64decode(token.encode()).decode()
-        uid, exp, sig = decoded.split(".", 2)
-        body = f"{uid}.{exp}"
+        uid, exp, nonce, sig = decoded.split(".", 3)
+        body = f"{uid}.{exp}.{nonce}"
         expected = hmac.new(SECRET.encode(), body.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(sig, expected) or int(exp) < int(time.time()):
             raise ValueError
@@ -163,8 +186,8 @@ def audit(user_id: int, action: str, payload: dict, project_id: Optional[int] = 
 
 
 class AuthBody(BaseModel):
-    email: str
-    password: str = Field(min_length=10, max_length=200)
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=12, max_length=200)
 
 class ProjectBody(BaseModel):
     title: str = Field(min_length=1, max_length=200)
@@ -187,7 +210,7 @@ def health():
 @app.post("/api/auth/register")
 def register(body: AuthBody):
     email = body.email.strip().lower()
-    if "@" not in email:
+    if "@" not in email or email.startswith("@") or email.endswith("@"):
         raise HTTPException(400, "Valid email required")
     with db() as c:
         try:
@@ -264,6 +287,9 @@ def add_evidence(body: ReceiptBody, user_id: int = Depends(current_user)):
 @app.get("/api/projects/{project_id}/evidence")
 def project_evidence(project_id: int, user_id: int = Depends(current_user)):
     with db() as c:
+        project = c.execute("SELECT id FROM projects WHERE id=? AND user_id=?", (project_id, user_id)).fetchone()
+        if not project:
+            raise HTTPException(404, "Project not found")
         rows = c.execute("SELECT provider,receipt_id,status,note,created_at FROM evidence WHERE project_id=? AND user_id=? ORDER BY created_at DESC",
                          (project_id, user_id)).fetchall()
     return [dict(r) for r in rows]
@@ -274,17 +300,23 @@ async def upload_document(project_id: int, file: UploadFile = File(...), categor
         if not c.execute("SELECT id FROM projects WHERE id=? AND user_id=?", (project_id, user_id)).fetchone():
             raise HTTPException(404, "Project not found")
     data = await file.read()
+    if not data:
+        raise HTTPException(400, "File is empty")
     if len(data) > 20 * 1024 * 1024:
         raise HTTPException(413, "File exceeds 20 MB")
     safe_name = Path(file.filename or "upload.bin").name
     digest = hashlib.sha256(data).hexdigest()
     dest = UPLOAD_DIR / f"u{user_id}_p{project_id}_{digest[:16]}_{safe_name}"
     dest.write_bytes(data)
-    audit(user_id, "document.uploaded", {"category": category, "filename": safe_name, "sha256": digest}, project_id)
-    return {"filename": safe_name, "sha256": digest, "size": len(data), "category": category}
+    audit(user_id, "document.uploaded", {"category": category[:80], "filename": safe_name, "sha256": digest}, project_id)
+    return {"filename": safe_name, "sha256": digest, "size": len(data), "category": category[:80]}
 
 @app.post("/api/royalties/import")
 async def import_royalties(file: UploadFile = File(...), source: str = Form("csv"), project_id: Optional[int] = Form(default=None), user_id: int = Depends(current_user)):
+    if project_id is not None:
+        with db() as c:
+            if not c.execute("SELECT id FROM projects WHERE id=? AND user_id=?", (project_id, user_id)).fetchone():
+                raise HTTPException(404, "Project not found")
     raw = await file.read()
     if len(raw) > 10 * 1024 * 1024:
         raise HTTPException(413, "CSV exceeds 10 MB")
@@ -295,17 +327,18 @@ async def import_royalties(file: UploadFile = File(...), source: str = Form("csv
     rows = list(csv.DictReader(io.StringIO(text)))
     total = 0.0
     for row in rows:
+        normalized = {str(k).strip().lower(): v for k, v in row.items() if k is not None}
         for key in ("amount", "royalty", "earnings", "net"):
-            if row.get(key):
+            if normalized.get(key):
                 try:
-                    total += float(str(row[key]).replace("$", "").replace(",", ""))
+                    total += float(str(normalized[key]).replace("$", "").replace(",", ""))
                     break
                 except ValueError:
                     pass
     with db() as c:
         cur = c.execute("INSERT INTO royalty_imports(project_id,user_id,source,row_count,total_amount,created_at) VALUES(?,?,?,?,?,?)",
                         (project_id, user_id, source[:100], len(rows), total, int(time.time())))
-    audit(user_id, "royalties.imported", {"source": source, "row_count": len(rows), "total_amount": total}, project_id)
+    audit(user_id, "royalties.imported", {"source": source[:100], "row_count": len(rows), "total_amount": total}, project_id)
     return {"id": cur.lastrowid, "rows": len(rows), "total_amount": round(total, 2), "verified": False}
 
 @app.get("/api/audit")
@@ -314,8 +347,10 @@ def get_audit(user_id: int = Depends(current_user)):
         rows = c.execute("SELECT id,project_id,action,payload,created_at FROM audit_log WHERE user_id=? ORDER BY id DESC LIMIT 500", (user_id,)).fetchall()
     return [dict(r) for r in rows]
 
-# Static frontend is served by the same origin in production.
-app.mount("/assets", StaticFiles(directory=ROOT), name="assets")
+PUBLIC_FILES = {
+    "app.js": "application/javascript",
+    "styles.css": "text/css",
+}
 
 @app.get("/")
 def root():
@@ -323,7 +358,8 @@ def root():
 
 @app.get("/{path:path}")
 def static_fallback(path: str):
-    candidate = (ROOT / path).resolve()
-    if ROOT in candidate.parents and candidate.is_file() and candidate.name not in {"backend.py"}:
-        return FileResponse(candidate)
+    if path in PUBLIC_FILES:
+        return FileResponse(ROOT / path, media_type=PUBLIC_FILES[path])
+    if path.startswith("api/"):
+        return JSONResponse({"detail": "Not found"}, status_code=404)
     return FileResponse(ROOT / "index.html")
