@@ -112,6 +112,36 @@ def test_signal_allocator_prefers_observed_positive_signals():
     assert allocation["organic-b"] > allocation["organic-a"]
 
 
+def test_signal_allocator_honors_minimum_floor_when_capacity_allows():
+    allocator = SignalAllocator()
+    allocation = allocator.allocate(
+        {
+            "owned-site": CampaignSignals(visits=100),
+            "organic-social": CampaignSignals(visits=1),
+            "creator-outreach": CampaignSignals(),
+        },
+        total_workers=15,
+        minimum_each=3,
+    )
+    assert sum(allocation.values()) == 15
+    assert all(workers >= 3 for workers in allocation.values())
+
+
+def test_signal_allocator_fairly_degrades_floor_when_capacity_is_small():
+    allocator = SignalAllocator()
+    allocation = allocator.allocate(
+        {
+            "owned-site": CampaignSignals(),
+            "organic-social": CampaignSignals(),
+            "creator-outreach": CampaignSignals(),
+        },
+        total_workers=5,
+        minimum_each=3,
+    )
+    assert sum(allocation.values()) == 5
+    assert sorted(allocation.values()) == [1, 2, 2]
+
+
 def test_soundcloud_destination_is_allowed_for_genuine_discovery_copy():
     scheduler = ElasticScheduler(max_active_workers=5)
     active = scheduler.activate(
