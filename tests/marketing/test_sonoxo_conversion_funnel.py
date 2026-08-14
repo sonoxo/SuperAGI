@@ -76,7 +76,27 @@ def test_routing_plan_never_exceeds_bounded_active_pool():
     plan = funnel.routing_plan(64)
     assert sum(plan.values()) == 64
     assert set(plan) == {"a", "b", "c"}
-    assert max(plan.values()) - min(plan.values()) <= 1
+    assert all(value >= 1 for value in plan.values())
+
+
+def test_routing_plan_reallocates_toward_verified_positive_signals():
+    funnel = EvidenceGatedFunnel()
+    assert funnel.ingest(obs("a1", "owned_site", "awareness", "visit", 100))
+    assert funnel.ingest(obs("b1", "owned_site", "intent", "checkout", 1))
+    assert funnel.ingest(obs("c1", "distrokid_direct", "buyer", "purchase", 1))
+    assert funnel.ingest(obs("c2", "distrokid_direct", "buyer", "revenue", 1.0))
+    plan = funnel.routing_plan(30)
+    assert sum(plan.values()) == 30
+    assert plan["buyer"] > plan["intent"] > plan["awareness"]
+
+
+def test_small_pool_activates_only_top_ranked_campaigns():
+    funnel = EvidenceGatedFunnel()
+    assert funnel.ingest(obs("a1", "owned_site", "awareness", "click", 100))
+    assert funnel.ingest(obs("b1", "owned_site", "intent", "checkout", 1))
+    assert funnel.ingest(obs("c1", "distrokid_direct", "buyer", "revenue", 1.0))
+    plan = funnel.routing_plan(2)
+    assert plan == {"buyer": 1, "intent": 1, "awareness": 0}
 
 
 def test_empty_or_zero_worker_pool_produces_no_activation():
