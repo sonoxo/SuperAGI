@@ -1,0 +1,65 @@
+{
+  "name": "Q.AGI.S",
+  "project": "Red Pill Protocol",
+  "mode": "verified-orchestration",
+  "workerFabric": {
+    "logicalCapacity": 1000000,
+    "dormantByDefault": true,
+    "maxActiveWorkers": 64,
+    "maxWorkersPerWorkstream": 8
+  },
+  "pipeline": [
+    "plan",
+    "decompose",
+    "execute",
+    "verify",
+    "integrate",
+    "test",
+    "optimize",
+    "ship"
+  ],
+  "workstreams": [
+    "world-architect",
+    "combat-engineer",
+    "horde-director",
+    "frontend-engineer",
+    "backend-engineer",
+    "realtime-engineer",
+    "soundcore-engineer",
+    "qa-verifier",
+    "performance-engineer",
+    "integration-lead"
+  ],
+  "truthPolicy": {
+    "requireObservableArtifacts": true,
+    "requirePassingChecksBeforeComplete": true,
+    "allowFabricatedTelemetry": false,
+    "allowFabricatedDeployments": false,
+    "allowFabricatedAgentActivity": false
+  },
+  "soundcloud": {
+    "artistUrl": "https://soundcloud.com/almightysonoxo",
+    "humanControlledPlaybackOnly": true,
+    "autonomousListening": false
+  },
+  "verticalSlice": [
+    "start-menu",
+    "create-or-load-player",
+    "enter-grid",
+    "explore",
+    "npc-quest",
+    "lock-on-combat",
+    "horde-attack",
+    "flight",
+    "dash",
+    "zero-step-teleport",
+    "energy-combat",
+    "dungeon",
+    "anomaly-boss",
+    "loot",
+    "skill-upgrade",
+    "autosave",
+    "reload",
+    "restore-state"
+  ]
+}
