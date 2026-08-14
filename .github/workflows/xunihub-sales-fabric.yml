@@ -11,6 +11,7 @@ on:
       - "superagi/marketing/sonoxo_growth_metrics.py"
       - "superagi/marketing/sonoxo_activation_plan.py"
       - "superagi/marketing/sonoxo_campaign_packet.py"
+      - "superagi/marketing/sonoxo_analytics_evidence.py"
       - "tests/marketing/test_sonoxo_sales_fabric.py"
       - "tests/marketing/test_sonoxo_sales_sprint.py"
       - "tests/marketing/test_sonoxo_commerce_evidence.py"
@@ -18,6 +19,7 @@ on:
       - "tests/marketing/test_sonoxo_growth_metrics.py"
       - "tests/marketing/test_sonoxo_activation_plan.py"
       - "tests/marketing/test_sonoxo_campaign_packet.py"
+      - "tests/marketing/test_sonoxo_analytics_evidence.py"
       - "xunihub_sales_fabric_v1/fabric.py"
       - "xunihub_sales_fabric_v1/test_fabric.py"
       - "xunihub_sales_fabric_v1/README.md"
@@ -49,6 +51,7 @@ jobs:
           python -m py_compile superagi/marketing/sonoxo_growth_metrics.py
           python -m py_compile superagi/marketing/sonoxo_activation_plan.py
           python -m py_compile superagi/marketing/sonoxo_campaign_packet.py
+          python -m py_compile superagi/marketing/sonoxo_analytics_evidence.py
           python -m py_compile xunihub_sales_fabric_v1/fabric.py
           python -m py_compile xunihub_sales_fabric_v1/test_fabric.py
       - name: Run fabric tests
@@ -61,4 +64,5 @@ jobs:
           tests/marketing/test_sonoxo_growth_metrics.py
           tests/marketing/test_sonoxo_activation_plan.py
           tests/marketing/test_sonoxo_campaign_packet.py
+          tests/marketing/test_sonoxo_analytics_evidence.py
           xunihub_sales_fabric_v1/test_fabric.py
