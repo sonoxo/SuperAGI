@@ -101,6 +101,7 @@ class AttributedEvent:
     verified: bool = False
     authorization_source: Optional[str] = None
     evidence_id: Optional[str] = None
+    related_evidence_id: Optional[str] = None
     third_party: bool = True
     self_purchase: bool = False
 
@@ -238,11 +239,12 @@ class AttributionRouter:
 
 
 class RevenueLedger:
-    """Accepts only verified third-party commerce and deduplicates observed orders."""
+    """Tracks verified third-party commerce net of verified reversals."""
 
     def __init__(self):
         self._events: List[AttributedEvent] = []
         self._revenue_evidence_ids = set()
+        self._reversal_evidence_ids = set()
 
     @staticmethod
     def _evidence_key(event: AttributedEvent) -> Tuple[str, str]:
@@ -272,6 +274,22 @@ class RevenueLedger:
             if evidence_key in self._revenue_evidence_ids:
                 return
             self._revenue_evidence_ids.add(evidence_key)
+        elif event.event_type == "reversal":
+            if not event.verified:
+                raise ValueError("reversal must be verified")
+            if event.source not in AUTHORIZED_COMMERCE_SOURCES or not event.authorization_source:
+                raise ValueError("reversal must come from an authorized commerce source")
+            if event.amount_usd <= 0:
+                raise ValueError("verified reversal amount must be positive")
+            if not event.related_evidence_id:
+                raise ValueError("reversal must reference the original order evidence id")
+            original_key = (event.source, event.related_evidence_id)
+            if original_key not in self._revenue_evidence_ids:
+                raise ValueError("reversal must reference previously ingested verified revenue")
+            reversal_key = self._evidence_key(event)
+            if reversal_key in self._reversal_evidence_ids:
+                return
+            self._reversal_evidence_ids.add(reversal_key)
         self._events.append(event)
 
     def signals(self, campaign_id: str) -> CampaignSignals:
@@ -291,21 +309,16 @@ class RevenueLedger:
                 result.conversions += 1
             elif event.event_type == "revenue" and event.verified:
                 result.verified_revenue_usd += event.amount_usd
+            elif event.event_type == "reversal" and event.verified:
+                result.verified_revenue_usd -= event.amount_usd
             elif event.event_type == "cost":
                 result.cost_usd += max(0.0, event.amount_usd)
+        result.verified_revenue_usd = max(0.0, result.verified_revenue_usd)
         return result
 
     def first_real_dollar_reached(self) -> bool:
-        return sum(
-            event.amount_usd
-            for event in self._events
-            if event.event_type == "revenue"
-            and event.verified
-            and event.source in AUTHORIZED_COMMERCE_SOURCES
-            and event.authorization_source
-            and event.third_party
-            and not event.self_purchase
-        ) >= 1.0
+        campaign_ids = {event.campaign_id for event in self._events}
+        return sum(self.signals(campaign_id).verified_revenue_usd for campaign_id in campaign_ids) >= 1.0
 
 
 class SignalAllocator:
@@ -333,9 +346,6 @@ class SignalAllocator:
         names = list(campaigns)
         minimum_each = max(0, minimum_each)
 
-        # Apply the requested floor fairly before signal-weighted optimization.
-        # If capacity is too small to satisfy every floor, distribute one worker
-        # at a time across campaigns rather than silently under-allocating floors.
         base_floor = min(minimum_each, total_workers // len(names))
         allocation = {name: base_floor for name in names}
         remaining = total_workers - (base_floor * len(names))
