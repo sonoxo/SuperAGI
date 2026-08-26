@@ -1,3 +1,21 @@
+<!-- SONOXO_FORK_STATUS_START -->
+<div align="center">
+
+![Sonoxo fork — learning lab](https://img.shields.io/badge/SONOXO%20FORK-LEARNING%20LAB-7c3aed?style=for-the-badge)
+
+### Fork status — upstream project preserved
+
+This repository is a learning-lab fork of [`TransformerOptimus/SuperAGI`](https://github.com/TransformerOptimus/SuperAGI). The underlying project, product name, documentation, code, trademarks, and license belong to their upstream maintainers and contributors. **Sonoxo did not author or endorse the upstream project.** Check upstream before relying on this fork for releases, security updates, support, or current documentation.
+
+<sub>UPSTREAM SOURCE → FORK STUDY COPY → LOCAL EXPERIMENTS</sub>
+
+</div>
+
+> **Upstream README begins below unchanged.**
+
+---
+<!-- SONOXO_FORK_STATUS_END -->
+
 <p align="center">
   <a href="https://superagi.com//#gh-light-mode-only">
     <img src="https://superagi.com/wp-content/uploads/2023/05/Logo-dark.svg" width="318px" alt="SuperAGI logo" />
